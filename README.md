@@ -106,6 +106,7 @@ python -m scripts.run_graph
 
 
 Example Output:
+
 ===== AI GENERATED INSIGHTS =====
 
 Trend Insights:
