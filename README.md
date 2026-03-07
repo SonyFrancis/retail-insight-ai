@@ -100,7 +100,9 @@ If validation fails, the system retries insight generation.
 
 ### Running the Project
 Run the pipeline from the project root:
+```
 python -m scripts.run_graph
+```
 
 Example Output:
 
