@@ -104,8 +104,8 @@ Run the pipeline from the project root:
 python -m scripts.run_graph
 ```
 
-Example Output:
 
+Example Output:
 ===== AI GENERATED INSIGHTS =====
 
 Trend Insights:
@@ -118,7 +118,6 @@ Contribution Insights:
 Electronics contributed nearly half of the most recent revenue growth (48.15%), followed by Home.
 
 Confidence: medium
-
 ===============================
 
 ## Technologies Used
