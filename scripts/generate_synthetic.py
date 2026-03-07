@@ -208,8 +208,21 @@ def generate_data():
         # Stockout chance slightly higher in promo weeks
         stockout = 1 if (np.random.rand() < (0.05 + 0.07 * pf)) else 0
 
+        # Long-term growth trend by category
+        weeks_since_start = (r["date"] - cal["date"].min()).days / 7
+
+        category_growth = {
+            "Electronics": 0.0015,  # ~15% annual growth
+            "Fashion": -0.0008,     # slow decline
+            "Home": 0.0005,         # mild growth
+            "Grocery": 0.0          # stable
+        }.get(r["category"], 0)
+
+        growth_multiplier = 1 + (weeks_since_start * category_growth)
+
+
         # Units before stockout
-        units_demand = base_units * seas * region_factor * store_noise * promo_uplift
+        units_demand = base_units * seas * region_factor * store_noise * promo_uplift * growth_multiplier
 
         # Price elasticity: if price above base, slight reduction in demand (elasticity ~ -0.3)
         elasticity = -0.3
