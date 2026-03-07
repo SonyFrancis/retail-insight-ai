@@ -143,5 +143,5 @@ Retail organizations generate vast amounts of transactional data, but analysts o
 This project demonstrates how AI systems can bridge the gap between raw data and decision-making insights by combining traditional analytics with LLM-driven interpretation.
 
 ### Author
-Sony Francis
+Sony Francis  
 Machine Learning Engineer | Applied AI Systems
