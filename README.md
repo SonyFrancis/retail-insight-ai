@@ -23,6 +23,7 @@ The goal is to simulate how modern AI systems can assist analysts by converting 
 
 The pipeline follows a hybrid analytics + LLM architecture:
 
+```
 Retail Sales Data (CSV)
         │
         ▼
@@ -40,10 +41,10 @@ LangGraph Orchestration
         │
         ▼
 Structured Business Insights
+```
 
 This architecture ensures that statistical signals are extracted deterministically, while the LLM is used only for interpretation and summarization.
 
-## Project Structure
 ## Project Structure
 
 ```
