@@ -44,33 +44,36 @@ Structured Business Insights
 This architecture ensures that statistical signals are extracted deterministically, while the LLM is used only for interpretation and summarization.
 
 ## Project Structure
+## Project Structure
 
-retail-insight-ai
+```
+retail-insight-ai/
 │
-├── app
-│   ├── insights
+├── app/
+│   ├── insights/
 │   │   └── detectors.py
-│   │   
-│   ├── graph
+│   │
+│   ├── graph/
 │   │   ├── builder.py
 │   │   └── nodes.py
 │   │
-│   ├── data
-│   │   └── raw
+│   ├── data/
+│   │   └── raw/
 │   │
-│   └── utils
+│   └── utils/
 │
-├── scripts
+├── scripts/
 │   ├── generate_synthetic.py
 │   └── run_graph.py
 │
-├── notebooks
+├── notebooks/
 │   └── EDA.ipynb
 │
-├── tests
+├── tests/
 │
 ├── requirements.txt
 └── README.md
+```
 
 ### How the Pipeline Works
 1. Data Ingestion
@@ -99,6 +102,7 @@ Run the pipeline from the project root:
 python -m scripts.run_graph
 
 Example Output
+
 ===== AI GENERATED INSIGHTS =====
 
 Trend Insights:
