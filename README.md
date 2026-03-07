@@ -102,7 +102,7 @@ If validation fails, the system retries insight generation.
 Run the pipeline from the project root:
 python -m scripts.run_graph
 
-Example Output
+Example Output:
 
 ===== AI GENERATED INSIGHTS =====
 
