@@ -2,6 +2,8 @@ import ollama
 import json
 import re
 
+from app.evals.factuality import run_factuality_eval
+
 
 def analyst_node(state):
     metrics = state["metrics"]
@@ -123,5 +125,30 @@ def critic_node(state):
         print("Critic rejected insight. Retrying...")
     else:
         state["approved"] = True
+
+    return state
+
+def eval_node(state):
+    """
+    Runs factuality eval on the approved insight.
+    Runs AFTER critic approves — never during retry loop.
+    """
+    insight = state.get("insight")
+    metrics = state.get("metrics")
+
+    if not insight or not metrics:
+        state["factuality_report"] = None
+        return state
+
+    report = run_factuality_eval(insight, metrics)
+    state["factuality_report"] = report
+
+    # Print to console so it shows alongside existing output
+    print(f"\n--- FACTUALITY EVAL ---")
+    print(report.summary())
+
+    for r in report.results:
+        status = "PASS" if r.passed else "FAIL"
+        print(f"  [{status}] {r.check_type:10s} | {r.claim_text:30s} | {r.note}")
 
     return state
