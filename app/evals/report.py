@@ -24,3 +24,17 @@ class FactualityReport:
             f"Factuality {self.overall_score*100:.0f}% "
             f"({self.passed_claims}/{self.total_claims} claims passed)"
         )
+    
+    def compute_confidence(self) -> str:       # ← ADD this method
+        """
+        Confidence = how faithfully the LLM summarised the input signals.
+        Derived from factuality eval score, not from data signal strength.
+        """
+        if self.total_claims == 0:
+            return "low"
+        if self.overall_score >= 0.90:
+            return "high"
+        elif self.overall_score >= 0.75:
+            return "medium"
+        else:
+            return "low"

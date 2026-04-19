@@ -2,6 +2,15 @@ from langgraph.graph import StateGraph, END
 from app.graph.state import InsightState
 from app.graph.nodes import analyst_node, critic_node, eval_node
 
+MAX_RETRIES = 2
+
+def _route_after_eval(state):
+    report = state.get("factuality_report")
+    if report and report.verdict == "fail":
+        if state["retry_count"] < MAX_RETRIES:
+            return "retry"
+    return "approved"
+
 def build_graph():
     workflow = StateGraph(InsightState)
 
@@ -19,6 +28,14 @@ def build_graph():
             "retry": "analyst"
         }
     )
-    workflow.add_edge("eval", END)
+    # workflow.add_edge("eval", END)
 
+    workflow.add_conditional_edges(
+        "eval",
+        _route_after_eval,
+        {
+            "approved": END,
+            "retry":    "analyst"
+        }
+    )
     return workflow.compile()

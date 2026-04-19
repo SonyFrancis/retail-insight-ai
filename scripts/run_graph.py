@@ -26,6 +26,9 @@ if __name__ == "__main__":
     result = graph.invoke(initial_state)
 
     insight = result.get("insight", {})
+    report     = result.get("factuality_report")
+    confidence = report.compute_confidence() if report else "low"
+    insight["confidence"] = confidence
 
     print("\n===== AI GENERATED INSIGHTS =====\n")
 

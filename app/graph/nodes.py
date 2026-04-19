@@ -7,6 +7,22 @@ from app.evals.factuality import run_factuality_eval
 
 def analyst_node(state):
     metrics = state["metrics"]
+
+    # ADD: Build failure feedback from previous eval if present
+    eval_feedback = ""
+    report = state.get("factuality_report")
+    if report and report.verdict == "fail":
+        failed = [r for r in report.results if not r.passed]
+        failure_lines = "\n".join(
+            f"- {r.check_type}: '{r.claim_text}' — {r.note}"
+            for r in failed
+        )
+        eval_feedback = f"""Previous insight was rejected for these factuality failures:
+                    {failure_lines}
+
+                    Correct these specifically before generating the new insight.
+                    """
+
     prompt = f"""
             You are a retail analytics assistant.
 
@@ -15,13 +31,13 @@ def analyst_node(state):
             Metrics:
             {metrics}
 
+            {eval_feedback}
             Generate structured business insights in JSON format:
 
             {{
             "trend_insights": "...",
             "anomaly_insights": "...",
-            "contribution_insights": "...",
-            "confidence": "low | medium | high"
+            "contribution_insights": "..."
             }}
 
             Instructions:
@@ -29,6 +45,12 @@ def analyst_node(state):
             - Do NOT repeat raw JSON data
             - Highlight the most important patterns
             - Mention percentages or slopes only when relevant
+            - weekly_slope is a plain number — do not attach units to it
+            - Do NOT invent numbers
+            - Do NOT introduce new metrics
+            - Do not infer or invent currency symbols.
+            - If a unit is not provided, refer to values without a currency symbol.
+            - Do NOT mention month names unless they appear in the metrics time_window field
             - Keep each insight concise (1-2 sentences)
             - If no trend is detected, say "No significant trend detected."
             - If no anomalies are detected, say "No significant anomalies detected."
@@ -36,29 +58,6 @@ def analyst_node(state):
             - Output valid JSON only
             """
 
-    # prompt = f"""
-    #             You are a retail analytics assistant.
-
-    #             You are given statistical trend detection results from deterministic analysis.
-
-    #             Metrics:
-    #             {metrics}
-
-    #             Generate a concise business insight in JSON format:
-
-    #             {{
-    #             "summary": "...",
-    #             "confidence": "low | medium | high"
-    #             }}
-
-    #             Rules:
-    #             - Only describe the detected trends
-    #             - Do NOT invent numbers
-    #             - Do NOT introduce new metrics
-    #             - Do not infer or invent currency symbols.
-    #             - If a unit is not provided, refer to values without a currency symbol.
-    #             - Output valid JSON only
-    #             """
 
     response = ollama.chat(
         model="mistral",  # or llama3 if installed
@@ -77,8 +76,7 @@ def analyst_node(state):
         required_keys = [
             "trend_insights",
             "anomaly_insights",
-            "contribution_insights",
-            "confidence"
+            "contribution_insights"
         ]
 
         if all(k in parsed for k in required_keys):
