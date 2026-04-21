@@ -5,16 +5,14 @@ from app.insights.detectors import run_detectors
 if __name__ == "__main__":
     graph = build_graph()
 
-    # initial_state = {
-    #     "metrics": {"trend": "up"},
-    #     "insight": "",
-    #     "approved": False,
-    #     "retry_count": 0
-    # }
-
-
     df = pd.read_csv("app/data/raw/sales.csv", parse_dates=["date"])
     metrics = run_detectors(df)
+
+    print("=== Raw Metrics from Detectors ===", metrics)
+    # Add this temporarily to run_graph.py to inspect
+    for a in metrics["anomalies_detected"]:
+        if a["entity"].get("category") == "Home":
+            print(a)
 
     initial_state = {
         "metrics": metrics,

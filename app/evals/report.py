@@ -25,7 +25,7 @@ class FactualityReport:
             f"({self.passed_claims}/{self.total_claims} claims passed)"
         )
     
-    def compute_confidence(self) -> str:       # ← ADD this method
+    def compute_confidence(self) -> str:       
         """
         Confidence = how faithfully the LLM summarised the input signals.
         Derived from factuality eval score, not from data signal strength.

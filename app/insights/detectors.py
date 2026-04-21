@@ -13,6 +13,54 @@ def _add_week_col(df: pd.DataFrame):
     df["week"] = df["date"].dt.to_period("W").astype(str)
     return df
 
+from datetime import datetime, timedelta
+
+def _format_week_to_natural(week_str: str) -> str:
+    """
+    Converts "2026-W03" to "week of Jan 12, 2026"
+    Uses the Monday of that ISO week as the anchor date.
+    """
+    try:
+        # %G = ISO year, %V = ISO week, %u = ISO weekday (1=Monday)
+        dt = datetime.strptime(week_str + "-1", "%G-W%V-%u")
+        return dt.strftime("week of %b %d, %Y")   # e.g. "week of Jan 12, 2026"
+    except Exception:
+        return week_str
+
+
+def format_metrics_for_llm(metrics: dict) -> dict:
+    import copy
+    formatted = copy.deepcopy(metrics)
+
+    for trend in formatted.get("trend_results", []):
+        trend.pop("weekly_slope", None)     # ← remove — internal metric
+        trend.pop("p_value", None)          # ← remove — not for business users
+        # format time_window as before
+        raw = trend.get("time_window", "")
+        if "→" in raw:
+            start, end = [s.strip() for s in raw.split("→")]
+            trend["time_window"] = (
+                f"{_format_week_to_natural(start)} to "
+                f"{_format_week_to_natural(end)}"
+            )
+
+    for anomaly in formatted.get("anomalies_detected", []):
+        anomaly.pop("value", None)          # ← remove raw revenue value
+        anomaly.pop("z_score", None)        # ← remove — not for business users
+        raw = anomaly.get("week", "")
+        anomaly["week"] = _format_week_to_natural(raw)
+
+    for contrib in formatted.get("contribution_analysis", []):
+        contrib.pop("delta_value", None)    # ← remove raw delta
+        raw = contrib.get("week_comparison", "")
+        if "→" in raw:
+            start, end = [s.strip() for s in raw.split("→")]
+            contrib["week_comparison"] = (
+                f"{_format_week_to_natural(start)} to "
+                f"{_format_week_to_natural(end)}"
+            )
+
+    return formatted
 
 # -------------------------
 # 1. Trend Detector

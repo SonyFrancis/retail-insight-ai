@@ -3,10 +3,15 @@ import json
 import re
 
 from app.evals.factuality import run_factuality_eval
+from app.evals.llm_evals import run_llm_evals
+from app.insights.detectors import format_metrics_for_llm  # ← add import
 
 
 def analyst_node(state):
     metrics = state["metrics"]
+
+    # Pre-format time references before passing to LLM
+    formatted_metrics = format_metrics_for_llm(metrics)   
 
     # ADD: Build failure feedback from previous eval if present
     eval_feedback = ""
@@ -29,7 +34,7 @@ def analyst_node(state):
             You are given deterministic analytics results from a data pipeline.
 
             Metrics:
-            {metrics}
+            {formatted_metrics}  
 
             {eval_feedback}
             Generate structured business insights in JSON format:
@@ -41,21 +46,19 @@ def analyst_node(state):
             }}
 
             Instructions:
-            - Summarize the metrics in natural language
+            - Summarize the metrics in natural language for a non-technical business audience
             - Do NOT repeat raw JSON data
             - Highlight the most important patterns
-            - Mention percentages or slopes only when relevant
-            - weekly_slope is a plain number — do not attach units to it
-            - Do NOT invent numbers
-            - Do NOT introduce new metrics
-            - Do not infer or invent currency symbols.
-            - If a unit is not provided, refer to values without a currency symbol.
-            - Do NOT mention month names unless they appear in the metrics time_window field
+            - Only state percentages that appear explicitly in the metrics
+            - Do NOT combine or sum contribution percentages — report each category separately
+            - You MUST NOT use any currency symbols or currency words anywhere in the output
+            - Time periods are already provided in natural language — use them exactly as given, do not reformat or invent dates
+            - Do NOT invent numbers or introduce new metrics
             - Keep each insight concise (1-2 sentences)
             - If no trend is detected, say "No significant trend detected."
             - If no anomalies are detected, say "No significant anomalies detected."
             - If contribution analysis is not meaningful, say "No major contribution changes detected."
-            - Output valid JSON only
+            - Output valid JSON only.
             """
 
 
@@ -126,7 +129,7 @@ def critic_node(state):
 
     return state
 
-def eval_node(state):
+def eval_node(state, verbose: bool = True):
     """
     Runs factuality eval on the approved insight.
     Runs AFTER critic approves — never during retry loop.
@@ -139,14 +142,21 @@ def eval_node(state):
         return state
 
     report = run_factuality_eval(insight, metrics)
+    llm_eval_result = run_llm_evals(insight, metrics)
+
     state["factuality_report"] = report
+    state["llm_eval_result"]   = llm_eval_result
 
     # Print to console so it shows alongside existing output
     print(f"\n--- FACTUALITY EVAL ---")
     print(report.summary())
+    print(f"\n--- LLM EVAL ---")
+    print(f"Faithfulness : {llm_eval_result['faithfulness_score']:.2f} — {llm_eval_result['faithfulness_reason']}")
+    print(f"Relevancy    : {llm_eval_result['relevancy_score']:.2f} — {llm_eval_result['relevancy_reason']}")
 
-    for r in report.results:
-        status = "PASS" if r.passed else "FAIL"
-        print(f"  [{status}] {r.check_type:10s} | {r.claim_text:30s} | {r.note}")
+    if verbose:
+        for r in report.results:
+            status = "PASS" if r.passed else "FAIL"
+            print(f"  [{status}] {r.check_type:10s} | {r.claim_text:30s} | {r.note}")
 
     return state

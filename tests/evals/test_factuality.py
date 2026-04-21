@@ -44,18 +44,6 @@ METRICS_CLEAN = {
 
 # ── Test cases ────────────────────────────────────────────────────────
 
-# def test_accurate_insight_passes():
-#     insight = {
-#         "trend_insights": (
-#             "Electronics revenue increased by 14.31% with a strong upward slope, "
-#             "while Fashion revenue declined by 10.59%."
-#         ),
-#         "anomaly_insights": "Anomalies were detected in Electronics during week 38.",
-#         "contribution_insights": "Electronics contributed 48.15% of recent revenue growth.",
-#         "confidence": "high",
-#     }
-#     report = run_factuality_eval(insight, METRICS_CLEAN)
-#     assert report.verdict == "pass", report.summary()
 def test_accurate_insight_passes():
     insight = {
         "trend_insights": (

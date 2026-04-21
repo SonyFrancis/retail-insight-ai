@@ -7,7 +7,11 @@ _ENTITY_STOPWORDS = {
     "and", "or", "for", "to", "from", "during", "anomalies", "anomaly",
     "revenue", "significant", "trend", "detected", "contributed", "recent",
     "strong", "upward", "downward", "slope", "growth", "change", "week",
-    "multiple", "major", "nearly", "half", "most",
+    "multiple", "major", "nearly", "half", "most", "there", "also",
+    "around", "early", "late", "mid", "seems", "noticeable", "unusual",
+    "unexpected", "approximately",
+    "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december",
 }
 
 # ── Claim extraction ──────────────────────────────────────────────────
@@ -50,10 +54,11 @@ def _check_numeric_value(
 
 
 def _extract_direction(text: str) -> str | None:
-    """Return 'increase' or 'decrease' based on keywords in text."""
     text_lower = text.lower()
-    up_words   = ["increas", "grew", "rose", "up", "higher", "gain"]
-    down_words = ["decreas", "fell", "drop", "down", "lower", "declin"]
+    up_words   = ["increas", "grew", "rose", "up", "higher", "gain",
+                  "climb", "spike", "spikes", "surge"]          # ← add spike/surge
+    down_words = ["decreas", "fell", "drop", "down", "lower",
+                  "declin", "shrink", "drops", "dip"]           # ← add drop/dip
     if any(w in text_lower for w in up_words):
         return "increase"
     if any(w in text_lower for w in down_words):
@@ -254,10 +259,48 @@ def run_factuality_eval(
         # Direction check only for trend insights
         if config["use_direction"]:
             stated_dir = _extract_direction(text)
-            if stated_dir and trend_results:
-                all_results.append(
-                    _check_direction(stated_dir, text, trend_results)
-                )
+
+            if field_key == "trend_insights":
+                if stated_dir and trend_results:
+                    all_results.append(
+                        _check_direction(stated_dir, text, trend_results)
+                    )
+
+            elif field_key == "anomaly_insights":
+                if anomaly_results:
+                    # Group anomalies by entity
+                    entity_anomalies: dict[str, list] = {}
+                    for a in anomaly_results:
+                        entity_name = list(a["entity"].values())[0].lower()
+                        entity_anomalies.setdefault(entity_name, []).append(a)
+
+                    # For each entity mentioned in text, check its direction
+                    for entity_name, anomalies in entity_anomalies.items():
+                        if entity_name.lower() not in text.lower():
+                            continue   # entity not mentioned in this insight
+
+                        actual_directions = {
+                            "increase" if a["z_score"] > 0 else "decrease"
+                            for a in anomalies
+                        }
+
+                        # Extract direction from the sentence mentioning this entity
+                        sentences = re.split(r'(?<=[.!?])\s+', text)
+                        for sentence in sentences:
+                            if entity_name.lower() not in sentence.lower():
+                                continue
+                            stated_dir = _extract_direction(sentence)
+                            if not stated_dir:
+                                continue
+                            passed_check = stated_dir in actual_directions
+                            all_results.append(ClaimResult(
+                                claim_text=f"{entity_name} anomaly direction={stated_dir}",
+                                check_type="direction",
+                                passed=passed_check,
+                                stated_value=stated_dir,
+                                actual_value=str(actual_directions),
+                                note=f"entity={entity_name}, actual={actual_directions}",
+                            ))
 
         # Entity check for all fields
         all_results.extend(_check_entities(text, valid_entities))
