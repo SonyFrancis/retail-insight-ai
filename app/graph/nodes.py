@@ -4,7 +4,32 @@ import re
 
 from app.evals.factuality import run_factuality_eval
 from app.evals.llm_evals import run_llm_evals
-from app.insights.detectors import format_metrics_for_llm  # ← add import
+from app.insights.detectors import format_metrics_for_llm  
+
+
+# ── Post-processing guardrail ───────────────────────────────────────── #
+_CURRENCY_SYMBOLS = ["$", "£", "€", "¥", "₹"]
+_CURRENCY_WORDS   = ["dollars", "USD", "GBP", "EUR", "rupees"]
+
+def clean_insight(insight: dict) -> dict:
+    """
+    Deterministically removes currency symbols and words
+    from all insight fields after LLM generation.
+    Runs before eval — so eval scores reflect already-cleaned output.
+    """
+    import copy
+    cleaned = copy.deepcopy(insight)
+
+    for field in ["trend_insights", "anomaly_insights", "contribution_insights"]:
+        text = cleaned.get(field, "")
+        for sym in _CURRENCY_SYMBOLS:
+            text = text.replace(sym, "")
+        for word in _CURRENCY_WORDS:
+            text = re.sub(rf'\b{word}\b', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'  +', ' ', text).strip()
+        cleaned[field] = text
+
+    return cleaned
 
 
 def analyst_node(state):
@@ -83,7 +108,7 @@ def analyst_node(state):
         ]
 
         if all(k in parsed for k in required_keys):
-            state["insight"] = parsed
+            state["insight"] = clean_insight(parsed)
         else:
             print("Missing keys in response")
             state["insight"] = None
@@ -155,8 +180,10 @@ def eval_node(state, verbose: bool = True):
     print(f"Relevancy    : {llm_eval_result['relevancy_score']:.2f} — {llm_eval_result['relevancy_reason']}")
 
     if verbose:
-        for r in report.results:
-            status = "PASS" if r.passed else "FAIL"
-            print(f"  [{status}] {r.check_type:10s} | {r.claim_text:30s} | {r.note}")
-
+        print(f"\n--- LLM EVAL ---")
+        if llm_eval_result and llm_eval_result.get("faithfulness_score") is not None:
+            print(f"Faithfulness : {llm_eval_result['faithfulness_score']:.2f} — {llm_eval_result['faithfulness_reason']}")
+            print(f"Relevancy    : {llm_eval_result['relevancy_score']:.2f} — {llm_eval_result['relevancy_reason']}")
+        else:
+            print("LLM eval skipped — judge model returned invalid output")
     return state

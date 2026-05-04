@@ -12,6 +12,27 @@ RANDOM_SEED = 42
 np.random.seed(RANDOM_SEED)
 random.seed(RANDOM_SEED)
 
+# Partner → store mapping
+# Each partner owns a subset of stores across regions
+PARTNER_STORE_MAP = {
+    "PARTNER_001": ["S001", "S002", "S003", "S004"],   # North-heavy
+    "PARTNER_002": ["S005", "S006", "S007", "S008"],   # South-heavy
+    "PARTNER_003": ["S009", "S010", "S011", "S012"],   # East-heavy
+    "PARTNER_004": ["S013", "S014", "S015", "S016"],   # West-heavy
+    "PARTNER_005": ["S017", "S018", "S019", "S020"],   # Mixed
+    "PARTNER_006": ["S021", "S022", "S023", "S024"],   # Mixed
+    "PARTNER_007": ["S025", "S026", "S027", "S028"],   # Mixed
+    "PARTNER_008": ["S029", "S030", "S031", "S032"],   # Mixed
+    "PARTNER_009": ["S033", "S034"],                   # Small partner
+}
+
+# Reverse map: store_id → partner_id
+STORE_PARTNER_MAP = {
+    store: partner
+    for partner, stores in PARTNER_STORE_MAP.items()
+    for store in stores
+}
+
 
 def ensure_dirs():
     os.makedirs("app/data/raw", exist_ok=True)
@@ -252,6 +273,7 @@ def generate_data():
         rows.append(
             {
                 "date": r["date"].date(),
+                "partner_id": STORE_PARTNER_MAP.get(r["store_id"], "UNKNOWN"),  # ← ADD
                 "store_id": r["store_id"],
                 "region": r["region"],
                 "category": r["category"],
@@ -274,13 +296,21 @@ def generate_data():
     df = inject_anomalies(df, frac=0.002)
 
     # Basic sorting and types
-    df = df.sort_values(["date", "store_id", "category", "subcategory", "product_id"]).reset_index(drop=True)
+    df = df.sort_values(["date", "partner_id", "store_id", "category", "subcategory", "product_id"]).reset_index(drop=True)
 
+    # Validate no store fell through mapping
+    unknown_count = (df["partner_id"] == "UNKNOWN").sum()
+    if unknown_count > 0:
+        print(f"⚠️  WARNING: {unknown_count} rows have no partner mapping")
+    else:
+        print("✅ All stores mapped to partners")
+        
     # Save
     out_path = "app/data/raw/sales.csv"
     df.to_csv(out_path, index=False)
     print(f"✅ Generated dataset: {out_path}")
     print(f"Rows: {len(df):,} | Date range: {df['date'].min()} → {df['date'].max()}")
+    print(f"Partners: {df['partner_id'].nunique()} | Stores: {df['store_id'].nunique()}")
     print(df.head(5))
 
 
