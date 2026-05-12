@@ -7,6 +7,7 @@ MAX_RETRIES = 2
 def _route_after_eval(state):
     report = state.get("factuality_report")
     if report and report.verdict == "fail":
+        print(f"DEBUG route_after_eval: verdict={report.verdict if report else None}, retry_count={state['retry_count']}")
         if state["retry_count"] < MAX_RETRIES:
             return "retry"
     return "approved"

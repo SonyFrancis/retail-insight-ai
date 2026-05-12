@@ -1,10 +1,14 @@
-import ollama
-import json
 import re
+import os
+import json
+from groq import Groq
 
 from app.evals.factuality import run_factuality_eval
 from app.evals.llm_evals import run_llm_evals
 from app.insights.detectors import format_metrics_for_llm  
+
+# Initialise Groq client
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 
 # ── Post-processing guardrail ───────────────────────────────────────── #
@@ -12,16 +16,17 @@ _CURRENCY_SYMBOLS = ["$", "£", "€", "¥", "₹"]
 _CURRENCY_WORDS   = ["dollars", "USD", "GBP", "EUR", "rupees"]
 
 def clean_insight(insight: dict) -> dict:
-    """
-    Deterministically removes currency symbols and words
-    from all insight fields after LLM generation.
-    Runs before eval — so eval scores reflect already-cleaned output.
-    """
     import copy
     cleaned = copy.deepcopy(insight)
 
     for field in ["trend_insights", "anomaly_insights", "contribution_insights"]:
         text = cleaned.get(field, "")
+        
+        # Guard — ensure it's a string before processing
+        if not isinstance(text, str):
+            cleaned[field] = str(text)
+            continue
+            
         for sym in _CURRENCY_SYMBOLS:
             text = text.replace(sym, "")
         for word in _CURRENCY_WORDS:
@@ -33,12 +38,11 @@ def clean_insight(insight: dict) -> dict:
 
 
 def analyst_node(state):
+    # Reset eval results on each attempt
+    state["factuality_report"] = None
+    state["llm_eval_result"]   = None
     metrics = state["metrics"]
 
-    # Pre-format time references before passing to LLM
-    formatted_metrics = format_metrics_for_llm(metrics)   
-
-    # ADD: Build failure feedback from previous eval if present
     eval_feedback = ""
     report = state.get("factuality_report")
     if report and report.verdict == "fail":
@@ -47,11 +51,14 @@ def analyst_node(state):
             f"- {r.check_type}: '{r.claim_text}' — {r.note}"
             for r in failed
         )
-        eval_feedback = f"""Previous insight was rejected for these factuality failures:
+        eval_feedback = f"""
+                    Previous insight was rejected for these factuality failures:
                     {failure_lines}
 
                     Correct these specifically before generating the new insight.
                     """
+
+    formatted_metrics = format_metrics_for_llm(metrics)
 
     prompt = f"""
             You are a retail analytics assistant.
@@ -59,9 +66,10 @@ def analyst_node(state):
             You are given deterministic analytics results from a data pipeline.
 
             Metrics:
-            {formatted_metrics}  
+            {formatted_metrics}
 
             {eval_feedback}
+
             Generate structured business insights in JSON format:
 
             {{
@@ -72,40 +80,56 @@ def analyst_node(state):
 
             Instructions:
             - Summarize the metrics in natural language for a non-technical business audience
+            - ALL three fields must be plain strings — never return a dict or object
             - Do NOT repeat raw JSON data
             - Highlight the most important patterns
             - Only state percentages that appear explicitly in the metrics
             - Do NOT combine or sum contribution percentages — report each category separately
             - You MUST NOT use any currency symbols or currency words anywhere in the output
-            - Time periods are already provided in natural language — use them exactly as given, do not reformat or invent dates
+            - Time periods are already provided in natural language — use them exactly as given
             - Do NOT invent numbers or introduce new metrics
             - Keep each insight concise (1-2 sentences)
             - If no trend is detected, say "No significant trend detected."
             - If no anomalies are detected, say "No significant anomalies detected."
             - If contribution analysis is not meaningful, say "No major contribution changes detected."
-            - Output valid JSON only.
+            - Output valid JSON only
             """
 
-
-    response = ollama.chat(
-        model="mistral",  # or llama3 if installed
+    # ── Groq replaces Ollama ──────────────────────────────────────────
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",      # fast, free tier
         messages=[{"role": "user", "content": prompt}],
+        temperature=0.1,             # low temperature for factual output
+        response_format={"type": "json_object"},  # enforces JSON output
     )
 
-    content = response["message"]["content"]
+    content = response.choices[0].message.content
+    # ─────────────────────────────────────────────────────────────────
 
-    # print("\n--- ANALYST NODE ---")
-    # print("LLM raw response:")
-    # print(content)
+    # Groq sometimes wraps in markdown code fences — strip them
+    content = re.sub(r'^```json\s*', '', content.strip())
+    content = re.sub(r'\s*```$', '', content.strip())
 
     try:
-        parsed = json.loads(content)
+        # content is always a string — parse it
+        if isinstance(content, str):
+            parsed = json.loads(content)
+        else:
+            parsed = content  # already dict in rare cases
 
         required_keys = [
             "trend_insights",
             "anomaly_insights",
-            "contribution_insights"
+            "contribution_insights",
         ]
+
+        # Flatten any dict values to strings
+        for key in required_keys:
+            val = parsed.get(key, "")
+            if isinstance(val, dict):
+                parsed[key] = " ".join(str(v) for v in val.values())
+            elif not isinstance(val, str):
+                parsed[key] = str(val)
 
         if all(k in parsed for k in required_keys):
             state["insight"] = clean_insight(parsed)
@@ -175,9 +199,6 @@ def eval_node(state, verbose: bool = True):
     # Print to console so it shows alongside existing output
     print(f"\n--- FACTUALITY EVAL ---")
     print(report.summary())
-    print(f"\n--- LLM EVAL ---")
-    print(f"Faithfulness : {llm_eval_result['faithfulness_score']:.2f} — {llm_eval_result['faithfulness_reason']}")
-    print(f"Relevancy    : {llm_eval_result['relevancy_score']:.2f} — {llm_eval_result['relevancy_reason']}")
 
     if verbose:
         print(f"\n--- LLM EVAL ---")

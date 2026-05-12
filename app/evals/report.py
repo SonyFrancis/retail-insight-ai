@@ -4,7 +4,7 @@ from typing import Literal
 @dataclass
 class ClaimResult:
     claim_text: str
-    check_type: Literal["numeric", "direction", "entity"]
+    check_type: Literal["numeric", "direction", "entity", "currency", "temporal"]
     passed: bool
     stated_value: float | str | None
     actual_value: float | str | None

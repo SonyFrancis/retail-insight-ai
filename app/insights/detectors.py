@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from scipy import stats
 from typing import List, Dict
+from datetime import datetime, timedelta
 
 
 # -------------------------
@@ -13,20 +14,28 @@ def _add_week_col(df: pd.DataFrame):
     df["week"] = df["date"].dt.to_period("W").astype(str)
     return df
 
-from datetime import datetime, timedelta
 
 def _format_week_to_natural(week_str: str) -> str:
     """
-    Converts "2026-W03" to "week of Jan 12, 2026"
-    Uses the Monday of that ISO week as the anchor date.
+    Handles two formats:
+    - ISO week: "2024-W38" → "week of Sep 16, 2024"
+    - Date range: "2024-09-16/2024-09-22" → "week of Sep 16, 2024"
     """
     try:
-        # %G = ISO year, %V = ISO week, %u = ISO weekday (1=Monday)
-        dt = datetime.strptime(week_str + "-1", "%G-W%V-%u")
-        return dt.strftime("week of %b %d, %Y")   # e.g. "week of Jan 12, 2026"
+        # Format 1: ISO week "2024-W38"
+        if "W" in week_str:
+            dt = datetime.strptime(week_str + "-1", "%G-W%V-%u")
+            return dt.strftime("week of %b %d, %Y")
+
+        # Format 2: date range "2024-09-16/2024-09-22" — use start date
+        if "/" in week_str:
+            start_date = week_str.split("/")[0]
+            dt = datetime.strptime(start_date, "%Y-%m-%d")
+            return dt.strftime("week of %b %d, %Y")
+
+        return week_str
     except Exception:
         return week_str
-
 
 def format_metrics_for_llm(metrics: dict) -> dict:
     import copy

@@ -1,12 +1,19 @@
+import os
 from deepeval import evaluate
 from deepeval.metrics import FaithfulnessMetric, AnswerRelevancyMetric
 from deepeval.test_case import LLMTestCase
 from deepeval.models.base_model import DeepEvalBaseLLM
-import ollama
+from groq import Groq
+import time
 
-# ── Custom Ollama judge model ─────────────────────────────────────────
-class OllamaJudge(DeepEvalBaseLLM):
-    def __init__(self, model: str = "llama3", max_retries: int = 3):
+groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+
+class GroqJudge(DeepEvalBaseLLM):
+    """
+    Wraps Groq API so deepeval uses llama3 as judge
+    without needing local Ollama.
+    """
+    def __init__(self, model: str = "llama-3.3-70b-versatile", max_retries: int = 3):
         self.model       = model
         self.max_retries = max_retries
 
@@ -17,28 +24,27 @@ class OllamaJudge(DeepEvalBaseLLM):
         last_error = None
         for attempt in range(self.max_retries):
             try:
-                response = ollama.chat(
+                response = groq_client.chat.completions.create(
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
+                    temperature=0.0,
                 )
-                return response["message"]["content"]
+                return response.choices[0].message.content
             except Exception as e:
                 last_error = e
-                print(f"  ⚠️  OllamaJudge attempt {attempt + 1} failed: {e}")
+                print(f"  ⚠️  GroqJudge attempt {attempt + 1} failed: {e}")
         raise last_error
 
     async def a_generate(self, prompt: str) -> str:
         return self.generate(prompt)
 
     def get_model_name(self) -> str:
-        return f"ollama/{self.model}"
+        return f"groq/{self.model}"
+
 
 def run_llm_evals(insight: dict, metrics: dict) -> dict:
-    """
-    LLM-as-judge evaluation using deepeval.
-    Returns empty result on failure rather than crashing the pipeline.
-    """
     try:
+        time.sleep(20)
         actual_output = " ".join([
             insight.get("trend_insights", ""),
             insight.get("anomaly_insights", ""),
@@ -53,7 +59,7 @@ def run_llm_evals(insight: dict, metrics: dict) -> dict:
             retrieval_context=retrieval_context,
         )
 
-        judge        = OllamaJudge(model="llama3")
+        judge        = GroqJudge()
         faithfulness = FaithfulnessMetric(threshold=0.7, model=judge)
         relevancy    = AnswerRelevancyMetric(threshold=0.7, model=judge)
 
@@ -69,11 +75,11 @@ def run_llm_evals(insight: dict, metrics: dict) -> dict:
         }
 
     except Exception as e:
-        print(f"  ⚠️  LLM eval failed (judge model error): {e}")
+        print(f"  ⚠️  LLM eval failed: {e}")
         return {
             "faithfulness_score":  None,
-            "faithfulness_reason": "Judge model failed to return valid JSON",
+            "faithfulness_reason": "Judge model failed",
             "relevancy_score":     None,
-            "relevancy_reason":    "Judge model failed to return valid JSON",
+            "relevancy_reason":    "Judge model failed",
             "passed":              None,
         }

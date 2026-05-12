@@ -2,6 +2,7 @@ import re
 from difflib import get_close_matches
 from app.evals.report import ClaimResult, FactualityReport
 
+_CURRENCY_SYMBOLS = {"$", "£", "€", "¥", "₹", "USD", "GBP", "EUR"}
 _ENTITY_STOPWORDS = {
     "no", "not", "the", "a", "an", "with", "while", "by", "in", "of",
     "and", "or", "for", "to", "from", "during", "anomalies", "anomaly",
@@ -10,8 +11,12 @@ _ENTITY_STOPWORDS = {
     "multiple", "major", "nearly", "half", "most", "there", "also",
     "around", "early", "late", "mid", "seems", "noticeable", "unusual",
     "unexpected", "approximately",
+    # Full month names
     "january", "february", "march", "april", "may", "june",
     "july", "august", "september", "october", "november", "december",
+    # Month abbreviations  
+    "jan", "feb", "mar", "apr", "jun",
+    "jul", "aug", "sep", "oct", "nov", "dec",
 }
 
 # ── Claim extraction ──────────────────────────────────────────────────
@@ -81,40 +86,6 @@ def _build_valid_entities(metrics: dict) -> set[str]:
 
 
 # ── Individual checks ─────────────────────────────────────────────────
-
-def _check_numeric(
-    stated_pct: float,
-    trend_results: list[dict],
-    tolerance: float = 0.05,
-) -> ClaimResult:
-    """
-    Find the closest matching pct_change in trend_results.
-    Pass if within `tolerance` relative error.
-    """
-    if not trend_results:
-        return ClaimResult(
-            claim_text=f"{stated_pct}%",
-            check_type="numeric",
-            passed=False,
-            stated_value=stated_pct,
-            actual_value=None,
-            note="No trend results to verify against",
-        )
-
-    all_pcts = [t["pct_change"] for t in trend_results]
-    # Find the closest actual value to what was stated
-    closest = min(all_pcts, key=lambda x: abs(x - stated_pct))
-    delta = abs(closest - stated_pct) / (abs(closest) + 1e-9)
-
-    return ClaimResult(
-        claim_text=f"{stated_pct}%",
-        check_type="numeric",
-        passed=delta <= tolerance,
-        stated_value=stated_pct,
-        actual_value=closest,
-        note=f"closest actual={closest:.2f}%, relative_delta={delta*100:.1f}%",
-    )
-
 
 def _check_direction(
     stated_direction: str,
@@ -206,6 +177,59 @@ def _check_entities(
 
     return results
 
+
+def _check_no_currency(text: str) -> list[ClaimResult]:
+    """Flag any currency symbols — dataset has no currency denomination."""
+    found = [sym for sym in _CURRENCY_SYMBOLS if sym in text]
+    if not found:
+        return []
+    return [ClaimResult(
+        claim_text=f"currency symbol: {', '.join(found)}",
+        check_type="currency",
+        passed=False,
+        stated_value=str(found),
+        actual_value=None,
+        note="currency not present in source data — likely hallucination",
+    )]
+
+def _check_no_date_inversion(insight_text: str, metrics: dict) -> list[ClaimResult]:
+    """
+    Checks that any years mentioned in the insight exist
+    in the actual signals across all detector outputs.
+    """
+    valid_years = set()
+
+    # Collect years from trend time windows
+    for t in metrics.get("trend_results", []):
+        years = re.findall(r"\d{4}", t.get("time_window", ""))
+        valid_years.update(years)
+
+    # Collect years from anomaly weeks
+    for a in metrics.get("anomalies_detected", []):
+        years = re.findall(r"\d{4}", a.get("week", ""))
+        valid_years.update(years)
+
+    # Collect years from contribution week comparisons
+    for c in metrics.get("contribution_analysis", []):
+        years = re.findall(r"\d{4}", c.get("week_comparison", ""))
+        valid_years.update(years)
+
+    stated_years = re.findall(r"\b(20\d{2})\b", insight_text)
+
+    results = []
+
+    for year in stated_years:
+        passed = year in valid_years
+        results.append(ClaimResult(
+            claim_text=f"year={year}",
+            check_type="temporal",
+            passed=passed,
+            stated_value=year,
+            actual_value=str(valid_years) if valid_years else None,
+            note=f"valid years from signals: {valid_years}",
+        ))
+
+    return results
 
 # ── Main entry point ──────────────────────────────────────────────────
 def run_factuality_eval(
@@ -304,6 +328,12 @@ def run_factuality_eval(
 
         # Entity check for all fields
         all_results.extend(_check_entities(text, valid_entities))
+
+        # Currency check for all fields
+        all_results.extend(_check_no_currency(text))
+
+        # Temporal check 
+        all_results.extend(_check_no_date_inversion(text, metrics))
 
     if not all_results:
         return FactualityReport(

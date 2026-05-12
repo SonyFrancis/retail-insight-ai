@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.env/
+.venv/
+
+# Environment files (never bake secrets into image)
+.env
+.env.*
+
+# Data files (mounted at runtime or loaded from cloud storage)
+app/data/raw/*.csv
+app/data/insights.db
+
+# Notebooks
+notebooks/
+
+# Tests (not needed in production image)
+tests/
+conftest.py
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Coverage
+.coverage
+htmlcov/
+.pytest_cache/

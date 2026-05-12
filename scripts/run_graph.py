@@ -1,6 +1,8 @@
 import pandas as pd
 from app.graph.builder import build_graph
 from app.insights.detectors import run_detectors
+from dotenv import load_dotenv
+load_dotenv()   # loads .env automatically
 
 if __name__ == "__main__":
     graph = build_graph()
@@ -24,24 +26,22 @@ if __name__ == "__main__":
     result = graph.invoke(initial_state)
 
     insight = result.get("insight", {})
-    report     = result.get("factuality_report")
-    confidence = report.compute_confidence() if report else "low"
-    insight["confidence"] = confidence
+    if insight is None:
+        print("❌ Pipeline failed to generate insight after all retries")
+    else:
+        report = result.get("factuality_report")
+        confidence = report.compute_confidence() if report else "low"
+        insight["confidence"] = confidence
 
-    print("\n===== AI GENERATED INSIGHTS =====\n")
-
-    print("Trend Insights:")
-    print(insight.get("trend_insights", "No trend insights available."))
-    print()
-
-    print("Anomaly Insights:")
-    print(insight.get("anomaly_insights", "No anomaly insights available."))
-    print()
-
-    print("Contribution Insights:")
-    print(insight.get("contribution_insights", "No contribution insights available."))
-    print()
-
-    print("Confidence:", insight.get("confidence", "unknown"))
-
-    print("\n===============================\n")
+        print("\n===== AI GENERATED INSIGHTS =====\n")
+        print("Trend Insights:")
+        print(insight.get("trend_insights", "No trend insights available."))
+        print()
+        print("Anomaly Insights:")
+        print(insight.get("anomaly_insights", "No anomaly insights available."))
+        print()
+        print("Contribution Insights:")
+        print(insight.get("contribution_insights", "No contribution insights available."))
+        print()
+        print("Confidence:", insight.get("confidence", "unknown"))
+        print("\n===============================\n")
