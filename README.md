@@ -1,5 +1,10 @@
 # Retail Insight AI
 
+[![Live API](https://img.shields.io/badge/Live%20API-GCP%20Cloud%20Run-blue)](https://retail-insight-ai-250509873578.us-central1.run.app/docs)
+[![Docker](https://img.shields.io/badge/Docker-Containerised-blue)](https://www.docker.com)
+
+> **Live Swagger UI:** https://retail-insight-ai-250509873578.us-central1.run.app/docs
+
 Retail Insight AI is an AI-powered analytics pipeline that automatically generates
 business insights from retail sales data.
 
@@ -18,10 +23,10 @@ raw metrics into interpretable business insights.
 - Detects statistically significant trends using linear regression
 - Identifies anomalous revenue spikes and drops using z-score analysis
 - Computes category contribution to revenue change
-- Uses LLMs to generate human-readable business insights
+- Uses hosted LLMs (Groq) to generate human-readable business insights
 - Validates insights deterministically against source signals
 - Evaluates LLM output quality using a two-layer eval architecture
-- Serves insights via a REST API with partner-level access control
+- Serves insights via a REST API deployed on GCP Cloud Run
 - Supports batch pre-computation and on-demand refresh per partner
 - Built using graph-based orchestration for modular, inspectable AI pipelines
 
@@ -49,7 +54,7 @@ Partner Data Layer
                         ▼
             LangGraph Orchestration
                         │
-                        ├── Analyst Node  (LLM Insight Generation)
+                        ├── Analyst Node  (Groq LLM Insight Generation)
                         ├── Critic Node   (Structure Validation + Retry Logic)
                         └── Eval Node     (Factuality + LLM-as-Judge Evaluation)
                         │
@@ -66,6 +71,9 @@ Partner Data Layer
                         ├── GET  /insights/{partner_id}/debug   (operators)
                         ├── POST /insights/{partner_id}/refresh (on-demand generation)
                         └── GET  /insights/                     (list all partners)
+                        │
+                        ▼
+            GCP Cloud Run (Docker container, public URL)
 ```
 
 This architecture ensures that statistical signals are extracted deterministically,
@@ -105,7 +113,7 @@ retail-insight-ai/
 │   ├── evals/
 │   │   ├── __init__.py
 │   │   ├── factuality.py             # Deterministic factuality checks
-│   │   ├── llm_evals.py              # LLM-as-judge via deepeval
+│   │   ├── llm_evals.py              # LLM-as-judge via deepeval + Groq
 │   │   └── report.py                 # FactualityReport dataclass
 │   │
 │   ├── data/
@@ -127,6 +135,10 @@ retail-insight-ai/
 │   └── evals/
 │       └── test_factuality.py        # Golden set tests for factuality eval
 │
+├── Dockerfile                        # Multi-stage Docker build
+├── docker-compose.yml                # Local development setup
+├── .dockerignore
+├── .env.example                      # Environment variable template
 ├── conftest.py
 ├── requirements.txt
 └── README.md
@@ -161,12 +173,13 @@ Before reaching the LLM, metrics are pre-processed to ensure business-readabilit
   are passed to the prompt
 
 ### 4. Analyst Node — LLM Insight Generation
-A local LLM (Mistral via Ollama) generates structured business insights in JSON format
-covering trend, anomaly, and contribution observations. The prompt enforces:
+A hosted LLM (llama3 via Groq API) generates structured business insights in JSON
+format covering trend, anomaly, and contribution observations. The prompt enforces:
 
 - Non-technical business language
 - No currency symbols or invented metrics
 - Per-category contribution reporting without aggregation
+- JSON output mode enforced at the API level for reliable structured output
 
 A post-generation `clean_insight()` pass deterministically strips any currency
 symbols that slip through prompt instructions.
@@ -188,10 +201,10 @@ The critic node validates the generated insight to ensure:
 | Direction | Up/down language matches actual signal direction, per entity |
 | Entity | Named categories exist in the dataset (fuzzy matched) |
 | Currency | No currency symbols or units are present |
-| Temporal | Year references exist in actual time windows |
+| Temporal | Year references exist in actual time windows across all signal types |
 
-#### Layer 2 — LLM-as-judge (deepeval + llama3)
-A separate LLM (llama3 via Ollama) evaluates the insight for:
+#### Layer 2 — LLM-as-judge (deepeval + Groq)
+A separate LLM (llama3-3.3-70b via Groq API) evaluates the insight for:
 
 - **Faithfulness** — are all claims supported by the input signals?
 - **Relevancy** — does the insight address the metrics it was given?
@@ -241,15 +254,50 @@ LLM eval scores, and per-claim results.
 Triggers fresh insight generation for a single partner. Runs the
 full pipeline and updates the DB record.
 
-## Running the Project
+### 10. Cloud Deployment
+The application is containerised using a multi-stage Docker build and deployed
+on GCP Cloud Run:
 
-Start the API server:
+- **Multi-stage Dockerfile** — builder stage installs dependencies, runtime stage
+  copies only what's needed, keeping the image lean and secure
+- **Non-root user** — container runs as a non-root user for security
+- **GCP Artifact Registry** — Docker image stored and versioned in GCP
+- **GCP Cloud Run** — serverless container execution with automatic scaling,
+  scales to zero when not in use (zero cost at rest)
+- **Environment variables** — API keys injected at runtime via Cloud Run
+  environment config, never baked into the image
+
+## Running the Project Locally
+
+**Prerequisites:**
 
 ```bash
+cp .env.example .env   # add your API keys to .env
+```
+
+Required environment variables:
+
+```
+GROQ_API_KEY=your_groq_api_key
+LANGSMITH_API_KEY=your_langsmith_api_key
+LANGSMITH_TRACING=true
+LANGSMITH_PROJECT=retail-insight-ai
+```
+
+**Option 1 — Docker (recommended):**
+
+```bash
+docker-compose up
+```
+
+**Option 2 — Local venv:**
+
+```bash
+pip install -r requirements.txt
 uvicorn app.api.main:app --reload
 ```
 
-Pre-compute insights for all partners (batch):
+Pre-compute insights for all partners:
 
 ```bash
 python -m scripts.precompute_insights
@@ -267,10 +315,10 @@ Run the factuality eval test suite:
 python -m pytest tests/evals/ -v
 ```
 
-Access the auto-generated Swagger UI at:
+Access the local Swagger UI at:
 
 ```
-http://localhost:8000/docs
+http://localhost:8080/docs
 ```
 
 ## API Endpoints
@@ -290,11 +338,11 @@ http://localhost:8000/docs
 ```json
 {
   "partner_id": "PARTNER_001",
-  "trend_insights": "Revenue for Electronics has seen a notable increase of 14.31% from early February 2024 to late January 2026. Fashion has experienced a decrease of 10.59% over the same period.",
-  "anomaly_insights": "Unusual spikes were observed in Electronics during late September 2024 and November 2025. Fashion showed unexpected increases in April 2024.",
-  "contribution_insights": "During the week of January 19-25 2026, Electronics contributed 48.15% to overall revenue growth, followed by Home at 34.84%, Fashion at 14.77%, and Grocery at 2.24%.",
+  "trend_insights": "Revenue for Electronics has seen a notable increase of 15.78% from week of Apr 29, 2024 to week of Apr 20, 2026.",
+  "anomaly_insights": "Unusual revenue drops were observed in Electronics during Sep 2024 and spikes during Apr 2026. Fashion showed unexpected increases in Apr 2025.",
+  "contribution_insights": "During the week of Apr 20, 2026, Electronics contributed 51.96% to overall revenue growth, followed by Home at 38.1%, Fashion at 8.38%, and Grocery at -1.56%.",
   "confidence": "high",
-  "generated_at": "2026-04-26T02:00:00Z",
+  "generated_at": "2026-05-12T02:00:00Z",
   "data_window": "May 2024 – Apr 2026"
 }
 ```
@@ -305,10 +353,10 @@ http://localhost:8000/docs
 {
   "factuality_score": 1.0,
   "factuality_verdict": "pass",
-  "llm_faithfulness": 0.89,
+  "llm_faithfulness": 0.86,
   "llm_relevancy": 1.0,
   "claim_results": [
-    {"claim_text": "14.31%", "check_type": "numeric", "passed": true, "note": "closest=14.31, relative_delta=0.0%"},
+    {"claim_text": "15.78%", "check_type": "numeric", "passed": true, "note": "closest=15.78, relative_delta=0.0%"},
     {"claim_text": "Electronics", "check_type": "entity", "passed": true, "note": "fuzzy match: electronics"}
   ]
 }
@@ -316,40 +364,41 @@ http://localhost:8000/docs
 
 ## Technologies Used
 
-- Python
+- Python 3.11
 - Pandas / NumPy / SciPy
 - LangGraph
 - FastAPI + Uvicorn
 - SQLite
-- Ollama (local LLM inference)
-- Mistral (insight generation)
-- Llama3 (LLM-as-judge evaluation)
+- Docker + GCP Cloud Run + GCP Artifact Registry
+- Groq API (hosted LLM inference — llama3 for generation, llama3-3.3-70b for evaluation)
 - deepeval (LLM evaluation framework)
 - pytest (golden set testing)
+- python-dotenv (environment management)
 
 ## Known Limitations
 
 - LLM-as-judge faithfulness scores may be lower than expected due to
-  format-level mismatches between ISO week dates in retrieval context
+  format-level mismatches between raw date formats in retrieval context
   and natural language dates in generated insights. Deterministic checks
   confirm factual accuracy independently.
-- Same LLM family (Mistral) used for both generation and criticism in the
-  critic node — an independent model is recommended for production.
-- Local Ollama inference is single-threaded — LLM generation is sequential
-  regardless of batch size. Increasing MAX_LLM_WORKERS requires a hosted
-  LLM API (GPT-4, Claude) that supports concurrent requests.
+- SQLite DB is baked into the Docker image at build time — insights persist
+  across requests within a container instance but reset on new deployments.
+  Production fix: persist DB to GCP Cloud Storage or migrate to Cloud SQL.
+- Groq free tier has token-per-minute rate limits — a sleep buffer is applied
+  between generation and judge calls to avoid rate limit errors.
 - Confidence scoring reflects LLM faithfulness, not underlying data
   signal strength. P-values and z-scores are available in raw metrics
   for signal quality assessment.
 
 ## Future Improvements
 
+- Persistent storage via GCP Cloud Storage or Cloud SQL
 - Multi-KPI expansion (margin, inventory, basket size)
 - RAG memory for historical insight retrieval
 - Cross-KPI correlation analysis
-- Observability and eval score drift tracking (LangSmith / Arize)
+- Observability and eval score drift tracking (LangSmith)
 - CI/CD pipeline with eval gate (GitHub Actions)
-- Scheduled nightly precompute (APScheduler / Celery)
+- Scheduled nightly precompute (Cloud Scheduler + Cloud Run Jobs)
 
 ## Motivation
 
